@@ -25,9 +25,10 @@ def save_seen(seen):
 def get_channel_id(url):
     try:
         r = requests.get(url, headers=HEADERS, timeout=10)
-        for p in [r"\"channelId\":\"(UC[\w-]+)\"", r"/channel/(UC[\w-]+)", r"\"externalId\":\"(UC[\w-]+)\""]:
+        for p in [r'"channelId":"(UC[\w-]+)"', r'/channel/(UC[\w-]+)', r'"externalId":"(UC[\w-]+)"']:
             m = re.search(p, r.text)
-            if m: return m.group(1)
+            if m:
+                return m.group(1)
     except Exception as e:
         print(f"Error: {e}")
     return None
@@ -41,24 +42,34 @@ def get_recent_videos(channel_id, hours=24):
             pub = datetime(*entry.published_parsed[:6], tzinfo=timezone.utc)
             if pub > cutoff:
                 vid_id = entry.get("yt_videoid") or entry.link.split("v=")[-1]
-                result.append({"title": entry.title, "url": entry.link, "video_id": vid_id,
-                               "channel": feed.feed.get("title","Unknown"),
-                               "published": pub.strftime("%d.%m.%Y %H:%M UTC")})
-        except: pass
+                result.append({
+                    "title": entry.title,
+                    "url": entry.link,
+                    "video_id": vid_id,
+                    "channel": feed.feed.get("title", "Unknown"),
+                    "published": pub.strftime("%d.%m.%Y %H:%M UTC")
+                })
+        except:
+            pass
     return result
 
 def get_transcript(video_id):
     try:
         from youtube_transcript_api import YouTubeTranscriptApi
-        t = YouTubeTranscriptApi.get_transcript(video_id, languages=["en","pl","en-US"])
+        t = YouTubeTranscriptApi.get_transcript(video_id, languages=["en", "pl", "en-US"])
         return " ".join([x["text"] for x in t])[:6000]
-    except: return None
+    except:
+        return None
 
 def send_telegram(text):
-    r = requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
-                      json={"chat_id": CHAT_ID, "text": text, "parse_mode": "HTML"}, timeout=10)
+    r = requests.post(
+        f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+        json={"chat_id": CHAT_ID, "text": text, "parse_mode": "HTML"},
+        timeout=10
+    )
     return r.json()
 
+# Main
 seen = load_seen()
 new_videos = []
 
@@ -66,7 +77,7 @@ for ch_url in CHANNELS:
     print(f"Checking {ch_url}...")
     ch_id = get_channel_id(ch_url)
     if not ch_id:
-        print(f"  Could not get channel ID")
+        print("  Could not get channel ID")
         continue
     videos = get_recent_videos(ch_id, hours=24)
     fresh = [v for v in videos if v["video_id"] not in seen]
@@ -83,10 +94,10 @@ print(f"New videos to process: {len(new_videos)}")
 for v in new_videos:
     transcript = get_transcript(v["video_id"])
     print("SUMMARIZE_THIS_VIDEO:")
-    print(f"TITLE: {v[\"title\"]}")
-    print(f"CHANNEL: {v[\"channel\"]}")
-    print(f"URL: {v[\"url\"]}")
-    print(f"PUBLISHED: {v[\"published\"]}")
+    print(f"TITLE: {v['title']}")
+    print(f"CHANNEL: {v['channel']}")
+    print(f"URL: {v['url']}")
+    print(f"PUBLISHED: {v['published']}")
     print(f"TRANSCRIPT_AVAILABLE: {transcript is not None}")
     if transcript:
         print(f"TRANSCRIPT: {transcript}")
@@ -95,4 +106,3 @@ for v in new_videos:
 
 save_seen(seen)
 print(f"State saved: {len(seen)} total seen videos")
-
