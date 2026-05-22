@@ -67,12 +67,16 @@ def get_trending(since="daily"):
     return repos
 
 def send_telegram(text):
-    r = requests.post(
-        f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
-        json={"chat_id": CHAT_ID, "text": text, "parse_mode": "HTML"},
-        timeout=10
-    )
-    return r.json()
+    try:
+        r = requests.post(
+            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+            json={"chat_id": CHAT_ID, "text": text, "parse_mode": "HTML"},
+            timeout=10
+        )
+        return r.json()
+    except Exception as e:
+        print(f"Error sending Telegram message: {e}", file=sys.stderr)
+        return None
 
 def format_repo(repo, index=None):
     prefix = f"{index}. " if index else ""
