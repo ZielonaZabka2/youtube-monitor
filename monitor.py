@@ -103,6 +103,11 @@ def get_transcript(video_id):
         return None
 
 def send_telegram(text):
+    if TEST_MODE:
+        print(f"📤 [TEST MODE] Telegram message ready:")
+        print(text)
+        return {"ok": True}
+
     try:
         r = requests.post(
             f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
@@ -112,11 +117,25 @@ def send_telegram(text):
         try:
             return r.json()
         except:
+            if r.status_code == 200:
+                return {"ok": True}
             print(f"  Telegram response: {r.status_code}")
             return {"ok": False}
     except Exception as e:
         print(f"  Telegram error: {e}")
         return {"ok": False}
+
+def create_summary(title, transcript):
+    # Placeholder for AI-based summarization
+    # In real usage, you'd integrate with Claude API or similar
+    if TEST_MODE:
+        return """Wideo zawiera przegląd najnowszych trendów SEO w 2026 roku:
+- Znaczenie atrybutu E-E-A-T (Experience, Expertise, Authoritativeness, Trustworthiness)
+- Optymalizacja dla featured snippets i position zero
+- Rola AI w generowaniu treści i strategii SEO
+- Link building w erze Google Helpful Content Update
+- Monitoring i adaptacja do zmian algorytmu"""
+    return "Brak transkrypcji dla podsumowania"
 
 # Main
 seen = load_seen()
@@ -125,7 +144,7 @@ new_videos = []
 if TEST_MODE:
     # Test data for demonstration
     print("Running in TEST MODE with example data...")
-    new_videos = [
+    test_videos = [
         {
             "title": "Advanced SEO Strategies for 2026",
             "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
@@ -133,8 +152,17 @@ if TEST_MODE:
             "channel": "Julian Goldie SEO",
             "published": "23.05.2026 14:30 UTC",
             "transcript": "In this video we'll cover the latest SEO techniques..."
+        },
+        {
+            "title": "YouTube Algorithm Secrets Revealed",
+            "url": "https://www.youtube.com/watch?v=test_2",
+            "video_id": "test_video_2",
+            "channel": "Jack Expert",
+            "published": "22.05.2026 10:15 UTC",
+            "transcript": "Let's dive into how YouTube's algorithm works..."
         }
     ]
+    new_videos = [v for v in test_videos if v["video_id"] not in seen]
 else:
     for ch_url in CHANNELS:
         print(f"Checking {ch_url}...")
@@ -149,23 +177,47 @@ else:
 
 if not new_videos:
     now = datetime.now(timezone.utc).strftime("%d.%m.%Y %H:%M")
-    send_telegram(f"✅ Sprawdzono kanały ({now} UTC) — brak nowych filmów.")
-    print("No new videos.")
+    msg = f"✅ Sprawdzono kanały ({now} UTC) — brak nowych filmów."
+    result = send_telegram(msg)
+    print("No new videos." if result.get("ok") else f"No new videos (Telegram: {result})")
     sys.exit(0)
 
 print(f"New videos to process: {len(new_videos)}")
+processed = 0
 for v in new_videos:
-    transcript = get_transcript(v["video_id"])
-    print("SUMMARIZE_THIS_VIDEO:")
-    print(f"TITLE: {v['title']}")
-    print(f"CHANNEL: {v['channel']}")
-    print(f"URL: {v['url']}")
-    print(f"PUBLISHED: {v['published']}")
-    print(f"TRANSCRIPT_AVAILABLE: {transcript is not None}")
-    if transcript:
-        print(f"TRANSCRIPT: {transcript}")
-    print("END_VIDEO")
-    seen.add(v["video_id"])
+    try:
+        transcript = get_transcript(v.get("video_id"))
+        print("SUMMARIZE_THIS_VIDEO:")
+        print(f"TITLE: {v['title']}")
+        print(f"CHANNEL: {v['channel']}")
+        print(f"URL: {v['url']}")
+        print(f"PUBLISHED: {v['published']}")
+        print(f"TRANSCRIPT_AVAILABLE: {transcript is not None}")
+        if transcript:
+            print(f"TRANSCRIPT: {transcript}")
+        print("END_VIDEO")
+
+        # Create Polish summary
+        summary = create_summary(v['title'], transcript)
+        msg = f"""🎬 <b>{v['title']}</b>
+Kanał: {v['channel']}
+Data: {v['published']}
+{v['url']}
+
+O czym jest film:
+{summary}"""
+
+        result = send_telegram(msg)
+        if result.get("ok"):
+            print(f"✅ Sent to Telegram: {v['title'][:50]}")
+            processed += 1
+        else:
+            print(f"❌ Failed to send: {v['title'][:50]}")
+
+        seen.add(v.get("video_id", ""))
+    except Exception as e:
+        print(f"❌ Error processing {v.get('title', 'Unknown')}: {e}")
+        seen.add(v.get("video_id", ""))
 
 save_seen(seen)
-print(f"State saved: {len(seen)} total seen videos")
+print(f"State saved: {len(seen)} total seen videos ({processed} processed in this run)")
