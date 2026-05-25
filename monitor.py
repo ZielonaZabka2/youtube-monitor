@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import requests, feedparser, re, sys, json, os
+import requests, re, sys, json, os, xml.etree.ElementTree as ET
 from datetime import datetime, timezone, timedelta
 
 TELEGRAM_TOKEN = "8766055278:AAEPUD-t4kZA6yADNRwfVyKvSqTiUYUZ-jw"
@@ -29,29 +29,49 @@ def get_channel_id(url):
             m = re.search(p, r.text)
             if m:
                 return m.group(1)
+        # Try extracting from the main JavaScript config
+        m = re.search(r'"channelId":"(UC[\w-]+)"', r.text)
+        if m:
+            return m.group(1)
     except Exception as e:
-        print(f"Error: {e}")
+        pass
     return None
 
 def get_recent_videos(channel_id, hours=24):
-    feed = feedparser.parse(f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}")
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
-    result = []
-    for entry in feed.entries:
-        try:
-            pub = datetime(*entry.published_parsed[:6], tzinfo=timezone.utc)
-            if pub > cutoff:
-                vid_id = entry.get("yt_videoid") or entry.link.split("v=")[-1]
-                result.append({
-                    "title": entry.title,
-                    "url": entry.link,
-                    "video_id": vid_id,
-                    "channel": feed.feed.get("title", "Unknown"),
-                    "published": pub.strftime("%d.%m.%Y %H:%M UTC")
-                })
-        except:
-            pass
-    return result
+    try:
+        r = requests.get(f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}", headers=HEADERS, timeout=10)
+        root = ET.fromstring(r.content)
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+        result = []
+        ns = {'yt': 'http://www.youtube.com/xml/schemas/2015/02/liveChat', 'media': 'http://search.yahoo.com/mrss/', 'atom': 'http://www.w3.org/2005/Atom'}
+        for entry in root.findall('atom:entry', ns):
+            try:
+                title_elem = entry.find('atom:title', ns)
+                pub_elem = entry.find('atom:published', ns)
+                link_elem = entry.find('atom:link', ns)
+                vid_id_elem = entry.find('yt:videoId', ns)
+
+                title = title_elem.text if title_elem is not None else "Unknown"
+                link = link_elem.get('href') if link_elem is not None else ""
+                vid_id = vid_id_elem.text if vid_id_elem is not None else ""
+                pub_str = pub_elem.text if pub_elem is not None else ""
+
+                if vid_id and pub_str:
+                    pub = datetime.fromisoformat(pub_str.replace('Z', '+00:00'))
+                    if pub > cutoff:
+                        result.append({
+                            "title": title,
+                            "url": link,
+                            "video_id": vid_id,
+                            "channel": root.find('atom:title', ns).text if root.find('atom:title', ns) is not None else "Unknown",
+                            "published": pub.strftime("%d.%m.%Y %H:%M UTC")
+                        })
+            except Exception as e:
+                pass
+        return result
+    except Exception as e:
+        print(f"Error fetching feed: {e}")
+        return []
 
 def get_transcript(video_id):
     try:
@@ -62,12 +82,16 @@ def get_transcript(video_id):
         return None
 
 def send_telegram(text):
-    r = requests.post(
-        f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
-        json={"chat_id": CHAT_ID, "text": text, "parse_mode": "HTML"},
-        timeout=10
-    )
-    return r.json()
+    try:
+        r = requests.post(
+            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+            json={"chat_id": CHAT_ID, "text": text, "parse_mode": "HTML"},
+            timeout=10
+        )
+        return r.json() if r.text else {}
+    except Exception as e:
+        print(f"Telegram error: {e}")
+        return {}
 
 # Main
 seen = load_seen()
