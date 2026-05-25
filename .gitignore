@@ -1,0 +1,6 @@
+*.bak
+mock_output.txt
+telegram_log.json
+__pycache__/
+*.pyc
+.env
